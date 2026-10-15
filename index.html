@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Control de Rifa - Lotería Mexicana</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --accent: #dc2626;
+      --text: #f8fafc;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 1.25rem; min-height: 100vh; }
+    
+    header {
+      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;
+      gap: 1rem; max-width: 1400px; margin: 0 auto 1.5rem auto; padding-bottom: 1rem;
+      border-bottom: 1px solid #334155;
+    }
+    .header-left h1 { font-size: 1.6rem; font-weight: 800; }
+    .header-left p { color: #94a3b8; font-size: 0.9rem; margin-top: 0.25rem; }
+    
+    .stats-bar {
+      display: flex; gap: 1rem; align-items: center; background: #1e293b;
+      padding: 0.6rem 1.2rem; border-radius: 999px; border: 1px solid #334155;
+    }
+    .stat-badge { font-weight: 800; font-size: 1.1rem; }
+    .stat-sold { color: #f87171; }
+    .stat-free { color: #38bdf8; }
+    
+    .actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+    button {
+      cursor: pointer; border: none; outline: none; font-weight: 700; font-size: 0.95rem;
+      padding: 0.65rem 1.2rem; border-radius: 8px; transition: 0.15s ease; display: inline-flex;
+      align-items: center; justify-content: center; gap: 0.4rem;
+    }
+    button:active { transform: scale(0.98); }
+    .btn-download { background: #16a34a; color: white; box-shadow: 0 4px 10px rgba(22, 163, 74, 0.3); }
+    .btn-download:hover { background: #15803d; }
+    .btn-white { background: #2563eb; color: white; }
+    .btn-white:hover { background: #1d4ed8; }
+    .btn-secondary { background: #334155; color: #cbd5e1; }
+    .btn-secondary:hover { background: #475569; color: white; }
+
+    /* Toast */
+    #toast {
+      position: fixed; bottom: 20px; right: 20px; background: #059669; color: white;
+      padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 0.9rem;
+      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); z-index: 200;
+      opacity: 0; transform: translateY(10px); transition: 0.25s ease; pointer-events: none;
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+
+    /* Grid */
+    .grid-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 12px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    @media (min-width: 1024px) {
+      .grid-container { grid-template-columns: repeat(9, 1fr); }
+    }
+    .card-item {
+      background: #ffffff; border-radius: 8px; padding: 5px; box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+      cursor: pointer; position: relative; overflow: hidden; aspect-ratio: 1 / 1.58;
+      display: flex; flex-direction: column; transition: transform 0.15s ease, box-shadow 0.15s ease;
+      user-select: none;
+    }
+    .card-item:hover { transform: translateY(-4px); box-shadow: 0 10px 16px rgba(0,0,0,0.5); }
+    .card-img { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; display: block; }
+    
+    /* Overlay for sold cards */
+    .card-item.sold::before {
+      content: ''; position: absolute; inset: 5px; background: rgba(10, 15, 25, 0.65);
+      border-radius: 4px; z-index: 2;
+    }
+    .sold-badge {
+      display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: #dc2626; color: #ffffff; font-weight: 900;
+      font-size: 0.95rem; line-height: 1.2; text-transform: uppercase;
+      padding: 10px 6px; border-radius: 8px; z-index: 3; text-align: center; width: 90%;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.6); border: 2px solid #ffffff;
+      word-break: break-word; text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+    }
+    .card-item.sold .sold-badge { display: block; }
+
+    /* Modal */
+    .modal-backdrop {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(4px); z-index: 100; justify-content: center; align-items: center;
+    }
+    .modal-backdrop.active { display: flex; }
+    .modal {
+      background: #1e293b; border: 1px solid #475569; border-radius: 12px;
+      padding: 1.75rem; width: 92%; max-width: 400px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7);
+    }
+    .modal-title { font-size: 1.35rem; font-weight: 800; margin-bottom: 0.25rem; color: #f8fafc; }
+    .modal-sub { font-size: 0.85rem; color: #94a3b8; margin-bottom: 1.25rem; }
+    .input-group { margin-bottom: 1.5rem; }
+    .input-group label { display: block; font-size: 0.9rem; font-weight: 700; margin-bottom: 0.4rem; color: #e2e8f0; }
+    .input-group input {
+      width: 100%; padding: 0.75rem 1rem; border-radius: 8px; border: 2px solid #475569;
+      background: #0f172a; color: white; font-size: 1.15rem; font-weight: 700;
+      text-transform: uppercase;
+    }
+    .input-group input:focus { border-color: #38bdf8; }
+    .modal-btns { display: flex; justify-content: flex-end; gap: 0.5rem; }
+    .btn-danger { background: #b91c1c; color: white; margin-right: auto; }
+    .btn-danger:hover { background: #991b1b; }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+  </style>
+  <script src="cards.js"></script>
+</head>
+<body>
+
+  <header>
+    <div class="header-left">
+      <h1>🎲 Control de Rifa - Lotería Mexicana</h1>
+      <p>Hacé clic en cualquier carta para registrar quién la compró o liberarla.</p>
+    </div>
+    <div class="stats-bar">
+      <span>Vendidas: <span id="sold-count" class="stat-badge stat-sold">0</span></span>
+      <span style="color:#64748b;">|</span>
+      <span>Disponibles: <span id="free-count" class="stat-badge stat-free">54</span></span>
+    </div>
+    <div class="actions">
+      <button class="btn-download" id="btn-dl-wood" onclick="downloadBoard('wood')">📥 Descargar Tablero HD</button>
+      <button class="btn-white" id="btn-dl-white" onclick="downloadBoard('white')">📄 Descargar Fondo Blanco</button>
+      <button class="btn-secondary" onclick="exportBackup()">💾 Copia de Seguridad</button>
+      <button class="btn-secondary" onclick="resetAll()">🔄 Reiniciar</button>
+    </div>
+  </header>
+
+  <div class="grid-container" id="grid"></div>
+
+  <!-- Toast -->
+  <div id="toast">✓ Guardado</div>
+
+  <!-- Modal -->
+  <div class="modal-backdrop" id="modal">
+    <div class="modal">
+      <div class="modal-title" id="m-card-title">#1 El Gallo</div>
+      <div class="modal-sub">Escribí el nombre del comprador:</div>
+      <div class="input-group">
+        <label for="buyer-input">NOMBRE:</label>
+        <input type="text" id="buyer-input" placeholder="Ej. LULÚ, PILY..." autocomplete="off">
+      </div>
+      <div class="modal-btns">
+        <button type="button" class="btn-danger" id="btn-clear" onclick="clearCurrentCard()">Liberar</button>
+        <button type="button" class="btn-secondary" onclick="closeModal()">Cancelar</button>
+        <button type="button" class="btn-primary" onclick="saveCurrentCard()">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <canvas id="exportCanvas" style="display:none;"></canvas>
+
+  <script>
+    const CARD_NAMES = [
+      "El Gallo", "El Diablito", "La Dama", "El Catrín", "El Paraguas", "La Sirena", "La Escalera", "La Botella", "El Barril",
+      "El Árbol", "El Melón", "El Valiente", "El Gorrito", "La Muerte", "La Pera", "La Bandera", "El Bandolón", "El Violoncello",
+      "La Garza", "El Pájaro", "La Mano", "La Bota", "La Luna", "El Cotorro", "El Borracho", "El Negrito", "El Corazón",
+      "La Sandía", "El Tambor", "El Camarón", "Las Jaras", "El Músico", "La Araña", "El Soldado", "La Estrella", "El Cazo",
+      "El Mundo", "El Apache", "El Nopal", "El Alacrán", "La Rosa", "La Calavera", "La Campana", "El Cantarito", "El Venado",
+      "El Sol", "La Corona", "La Chalupa", "El Pino", "El Pescado", "La Palma", "La Maceta", "El Arpa", "La Rana"
+    ];
+
+    const INITIAL_PURCHASES = {
+      1: 'Lulú', 3: 'Ely', 4: 'Pily', 5: 'Pily', 6: 'Liz', 7: 'Yolita',
+      12: 'Pablo', 14: 'Pily', 16: 'Pily', 18: 'Pily', 22: 'Marilú', 23: 'Zury',
+      25: 'Pily', 27: 'Candy', 30: 'Pily', 34: 'Yolita', 35: 'Lupita', 41: 'Lulú',
+      46: 'Pily', 47: 'Inés', 48: 'Inés', 50: 'Nayely', 52: 'Pily'
+    };
+
+    let sales = {};
+    let activeCardIndex = null;
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2000);
+    }
+
+    function init() {
+      try {
+        const stored = localStorage.getItem('loteria_rifa_ventas_v2');
+        if (stored) {
+          sales = JSON.parse(stored);
+        } else {
+          sales = {...INITIAL_PURCHASES};
+          localStorage.setItem('loteria_rifa_ventas_v2', JSON.stringify(sales));
+        }
+      } catch (e) {
+        console.error('Error loading localStorage:', e);
+        sales = {...INITIAL_PURCHASES};
+      }
+      renderGrid();
+    }
+
+    function saveToStorage() {
+      try {
+        localStorage.setItem('loteria_rifa_ventas_v2', JSON.stringify(sales));
+        showToast('✓ Guardado automáticamente');
+      } catch (e) {
+        console.error('Error saving localStorage:', e);
+      }
+      updateStats();
+    }
+
+    function updateStats() {
+      const sold = Object.keys(sales).length;
+      document.getElementById('sold-count').innerText = sold;
+      document.getElementById('free-count').innerText = 54 - sold;
+    }
+
+    function renderGrid() {
+      const container = document.getElementById('grid');
+      container.innerHTML = '';
+      for (let i = 1; i <= 54; i++) {
+        const item = document.createElement('div');
+        const buyer = sales[i];
+        item.className = 'card-item' + (buyer ? ' sold' : '');
+        item.onclick = () => openModal(i);
+
+        const imgSrc = (typeof CARDS_DATA !== 'undefined' && CARDS_DATA[i]) ? CARDS_DATA[i] : `cards/${i}.webp`;
+
+        item.innerHTML = `
+          <img class="card-img" src="${imgSrc}" alt="${CARD_NAMES[i-1]}">
+          <div class="sold-badge">${buyer || ''}</div>
+        `;
+        container.appendChild(item);
+      }
+      updateStats();
+    }
+
+    function openModal(cardNum) {
+      activeCardIndex = cardNum;
+      document.getElementById('m-card-title').innerText = `#${cardNum} ${CARD_NAMES[cardNum - 1]}`;
+      const input = document.getElementById('buyer-input');
+      input.value = sales[cardNum] || '';
+      document.getElementById('modal').classList.add('active');
+      setTimeout(() => {
+        input.focus();
+        input.select();
+      }, 50);
+    }
+
+    function closeModal() {
+      document.getElementById('modal').classList.remove('active');
+      activeCardIndex = null;
+    }
+
+    function saveCurrentCard() {
+      if (!activeCardIndex) return;
+      const val = document.getElementById('buyer-input').value.trim();
+      if (val) {
+        sales[activeCardIndex] = val;
+      } else {
+        delete sales[activeCardIndex];
+      }
+      saveToStorage();
+      renderGrid();
+      closeModal();
+    }
+
+    function clearCurrentCard() {
+      if (!activeCardIndex) return;
+      delete sales[activeCardIndex];
+      saveToStorage();
+      renderGrid();
+      closeModal();
+    }
+
+    function resetAll() {
+      if (confirm('¿Seguro que querés reiniciar todas las ventas? Se borrarán todos los nombres guardados.')) {
+        sales = {};
+        saveToStorage();
+        renderGrid();
+      }
+    }
+
+    function exportBackup() {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(sales, null, 2));
+      const dl = document.createElement('a');
+      dl.setAttribute("href", dataStr);
+      dl.setAttribute("download", `respaldo_rifa_${new Date().toISOString().slice(0,10)}.json`);
+      dl.click();
+    }
+
+    // Helper for rounded rectangle across all browsers
+    function drawRoundedRect(ctx, x, y, width, height, radius) {
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + width - radius, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+      ctx.lineTo(x + width, y + height - radius);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      ctx.lineTo(x + radius, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+    }
+
+    // Canvas HD Board Downloader
+    async function downloadBoard(bgMode = 'wood') {
+      const btn = bgMode === 'wood' ? document.getElementById('btn-dl-wood') : document.getElementById('btn-dl-white');
+      const origText = btn.innerHTML;
+      btn.innerHTML = '⏳ Generando...';
+      btn.disabled = true;
+
+      try {
+        const COLS = 9, ROWS = 6;
+        const INNER_W = 600, INNER_H = 952;
+        const BORDER_X = 36, BORDER_Y = 36;
+        const CARD_W = INNER_W + 2 * BORDER_X;
+        const CARD_H = INNER_H + 2 * BORDER_Y;
+        const GAP_X = 36, GAP_Y = 36;
+        const PAD_X = 70, PAD_Y = 70;
+
+        const TOTAL_W = PAD_X * 2 + COLS * CARD_W + (COLS - 1) * GAP_X;
+        const TOTAL_H = PAD_Y * 2 + ROWS * CARD_H + (ROWS - 1) * GAP_Y;
+
+        const canvas = document.getElementById('exportCanvas');
+        canvas.width = TOTAL_W;
+        canvas.height = TOTAL_H;
+        const ctx = canvas.getContext('2d');
+
+        // Background
+        if (bgMode === 'wood') {
+          ctx.fillStyle = '#e1ddd7';
+          ctx.fillRect(0, 0, TOTAL_W, TOTAL_H);
+          for (let x = 0; x < TOTAL_W; x += 260) {
+            ctx.strokeStyle = '#d0cbc4';
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, TOTAL_H); ctx.stroke();
+            ctx.strokeStyle = '#eeebe6';
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(x + 1, 0); ctx.lineTo(x + 1, TOTAL_H); ctx.stroke();
+          }
+        } else {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, TOTAL_W, TOTAL_H);
+        }
+
+        // Preload base64 images safely
+        const images = await Promise.all(
+          Array.from({length: 54}, (_, idx) => {
+            return new Promise((resolve, reject) => {
+              const img = new Image();
+              img.onload = () => resolve(img);
+              img.onerror = () => {
+                console.warn('Fallback loading for card', idx + 1);
+                resolve(img);
+              };
+              img.src = (typeof CARDS_DATA !== 'undefined' && CARDS_DATA[idx + 1]) ? CARDS_DATA[idx + 1] : `cards/${idx + 1}.webp`;
+            });
+          })
+        );
+
+        // Render cards
+        for (let i = 1; i <= 54; i++) {
+          const idx = i - 1;
+          const col = idx % COLS;
+          const row = Math.floor(idx / COLS);
+          const x = PAD_X + col * (CARD_W + GAP_X);
+          const y = PAD_Y + row * (CARD_H + GAP_Y);
+
+          // Card Drop Shadow
+          ctx.save();
+          ctx.shadowColor = 'rgba(0,0,0,0.25)';
+          ctx.shadowBlur = 18;
+          ctx.shadowOffsetX = 4;
+          ctx.shadowOffsetY = 6;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(x, y, CARD_W, CARD_H);
+          ctx.restore();
+
+          // Card Border line
+          ctx.strokeStyle = '#c8c8c8';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x, y, CARD_W, CARD_H);
+
+          // Draw Card Art
+          if (images[idx] && images[idx].complete && images[idx].naturalWidth > 0) {
+            ctx.drawImage(images[idx], x + BORDER_X, y + BORDER_Y, INNER_W, INNER_H);
+          }
+
+          // Overlay if sold
+          if (sales[i]) {
+            const buyer = sales[i].toUpperCase();
+
+            // Dark tint over inner card
+            ctx.fillStyle = 'rgba(10, 16, 26, 0.60)';
+            ctx.fillRect(x + BORDER_X, y + BORDER_Y, INNER_W, INNER_H);
+
+            // Much Bigger Buyer Badge
+            const bw = 550, bh = 175;
+            const bx = x + (CARD_W - bw) / 2;
+            const by = y + (CARD_H - bh) / 2;
+
+            ctx.save();
+            ctx.fillStyle = 'rgba(220, 38, 38, 0.96)';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 4;
+            drawRoundedRect(ctx, bx, by, bw, bh, 30);
+            ctx.fill();
+            ctx.stroke();
+
+            // Big Bold Text
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = 'rgba(0,0,0,0.7)';
+            ctx.shadowBlur = 8;
+            ctx.shadowOffsetX = 3;
+            ctx.shadowOffsetY = 3;
+
+            // Large font sizing
+            let fontSize = 78;
+            if (buyer.length > 6) fontSize = 64;
+            if (buyer.length > 9) fontSize = 52;
+            if (buyer.length > 12) fontSize = 42;
+
+            ctx.font = `900 ${fontSize}px system-ui, -apple-system, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(buyer, bx + bw / 2, by + bh / 2);
+            ctx.restore();
+          }
+        }
+
+        // Trigger Download using Blob (safe across all browser engines)
+        canvas.toBlob((blob) => {
+          if (!blob) throw new Error('No se pudo generar el archivo de imagen.');
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.download = `loteria_rifa_${bgMode}_${new Date().toISOString().slice(0,10)}.jpg`;
+          link.href = url;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          showToast('✓ Imagen descargada con éxito');
+        }, 'image/jpeg', 0.95);
+
+      } catch (err) {
+        console.error('Error generating image:', err);
+        alert('Ocurrió un error al generar la imagen: ' + err.message);
+      } finally {
+        btn.innerHTML = origText;
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById('buyer-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') saveCurrentCard();
+      if (e.key === 'Escape') closeModal();
+    });
+
+    init();
+  </script>
+</body>
+</html>
