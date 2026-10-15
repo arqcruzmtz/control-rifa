@@ -6,7 +6,6 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-
   <title>Control de Rifa - Lotería Mexicana</title>
   <style>
     :root {
@@ -36,6 +35,7 @@
     .stat-badge { font-weight: 800; font-size: 1.05rem; }
     .stat-sold { color: #f87171; }
     .stat-free { color: #38bdf8; }
+    .cloud-status { font-size: 0.8rem; color: #22c55e; font-weight: 700; display: flex; align-items: center; gap: 0.3rem; }
     
     .actions { display: flex; gap: 0.6rem; flex-wrap: wrap; width: 100%; }
     @media (min-width: 768px) { .actions { width: auto; } }
@@ -47,7 +47,6 @@
     }
     button:active { transform: scale(0.97); }
     
-    /* WhatsApp Share Button */
     .btn-whatsapp {
       background: #25d366; color: #042f1a; flex: 1; min-width: 200px;
       box-shadow: 0 4px 12px rgba(37, 211, 102, 0.35); font-size: 1rem;
@@ -92,7 +91,6 @@
     .card-item:hover { transform: translateY(-3px); box-shadow: 0 10px 16px rgba(0,0,0,0.5); }
     .card-img { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; display: block; }
     
-    /* Overlay for sold cards */
     .card-item.sold::before {
       content: ''; position: absolute; inset: 4px; background: rgba(10, 16, 26, 0.65);
       border-radius: 4px; z-index: 2;
@@ -148,6 +146,8 @@
         <span>Vendidas: <span id="sold-count" class="stat-badge stat-sold">0</span></span>
         <span style="color:#64748b;">|</span>
         <span>Libres: <span id="free-count" class="stat-badge stat-free">54</span></span>
+        <span style="color:#64748b;">|</span>
+        <span class="cloud-status" id="cloud-indicator">🟢 Sincronizado</span>
       </div>
       
       <div class="actions">
@@ -188,6 +188,8 @@
   <canvas id="exportCanvas" style="display:none;"></canvas>
 
   <script>
+    const CLOUD_API_URL = 'https://api.restful-api.dev/objects/ff808181a09d98f701a13dee877564bc';
+
     const CARD_NAMES = [
       "El Gallo", "El Diablito", "La Dama", "El Catrín", "El Paraguas", "La Sirena", "La Escalera", "La Botella", "El Barril",
       "El Árbol", "El Melón", "El Valiente", "El Gorrito", "La Muerte", "La Pera", "La Bandera", "El Bandolón", "El Violoncello",
@@ -199,13 +201,14 @@
 
     const INITIAL_PURCHASES = {
       1: 'Lulú', 3: 'Ely', 4: 'Pily', 5: 'Pily', 6: 'Liz', 7: 'Yolita',
-      12: 'Pablo', 14: 'Pily', 16: 'Pily', 18: 'Pily', 22: 'Marilú', 23: 'Zury',
+      12: 'Pablo', 14: 'Pily', 15: 'Estela', 16: 'Pily', 18: 'Pily', 22: 'Marilú', 23: 'Zury',
       25: 'Pily', 27: 'Candy', 30: 'Pily', 34: 'Yolita', 35: 'Lupita', 41: 'Lulú',
       46: 'Pily', 47: 'Inés', 48: 'Inés', 50: 'Nayely', 52: 'Pily'
     };
 
-    let sales = {};
+    let sales = {...INITIAL_PURCHASES};
     let activeCardIndex = null;
+    let isSyncing = false;
 
     function showToast(msg) {
       const t = document.getElementById('toast');
@@ -214,29 +217,76 @@
       setTimeout(() => t.classList.remove('show'), 2200);
     }
 
-    function init() {
-      try {
-        const stored = localStorage.getItem('loteria_rifa_ventas_v2');
-        if (stored) {
-          sales = JSON.parse(stored);
-        } else {
-          sales = {...INITIAL_PURCHASES};
-          localStorage.setItem('loteria_rifa_ventas_v2', JSON.stringify(sales));
-        }
-      } catch (e) {
-        sales = {...INITIAL_PURCHASES};
+    function setStatus(text, color) {
+      const ind = document.getElementById('cloud-indicator');
+      if (ind) {
+        ind.innerText = text;
+        ind.style.color = color || '#22c55e';
       }
-      renderGrid();
     }
 
-    function saveToStorage() {
+    async function fetchCloudData() {
       try {
-        localStorage.setItem('loteria_rifa_ventas_v2', JSON.stringify(sales));
-        showToast('✓ Guardado automáticamente');
-      } catch (e) {
-        console.error('Error saving:', e);
+        const resp = await fetch(CLOUD_API_URL, { cache: 'no-store' });
+        if (resp.ok) {
+          const res = await resp.json();
+          if (res && res.data) {
+            sales = res.data;
+            localStorage.setItem('loteria_rifa_ventas_v3', JSON.stringify(sales));
+            renderGrid();
+            setStatus('🟢 Sincronizado', '#22c55e');
+          }
+        }
+      } catch (err) {
+        console.warn('Error fetching cloud data, using cache:', err);
+        setStatus('🟡 Modo local', '#eab308');
       }
-      updateStats();
+    }
+
+    async function syncToCloud() {
+      setStatus('☁️ Guardando en la nube...', '#38bdf8');
+      isSyncing = true;
+      try {
+        const resp = await fetch(CLOUD_API_URL, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'rifa_loteria_arqcruzmtz', data: sales })
+        });
+        if (resp.ok) {
+          setStatus('🟢 Sincronizado', '#22c55e');
+          showToast('✓ Guardado en la nube para todos');
+        } else {
+          throw new Error('Error al guardar en la nube');
+        }
+      } catch (err) {
+        console.error(err);
+        setStatus('⚠️ Error de conexión', '#f87171');
+        showToast('Guardado local (sin internet)');
+      } finally {
+        isSyncing = false;
+      }
+    }
+
+    function init() {
+      // 1. Load from cache first for instant render
+      try {
+        const stored = localStorage.getItem('loteria_rifa_ventas_v3');
+        if (stored) {
+          sales = JSON.parse(stored);
+        }
+      } catch (e) {}
+
+      renderGrid();
+
+      // 2. Fetch fresh cloud data immediately
+      fetchCloudData();
+
+      // 3. Poll cloud every 12 seconds to auto-update across all phones
+      setInterval(() => {
+        if (!isSyncing && !activeCardIndex) {
+          fetchCloudData();
+        }
+      }, 12000);
     }
 
     function updateStats() {
@@ -282,7 +332,7 @@
       activeCardIndex = null;
     }
 
-    function saveCurrentCard() {
+    async function saveCurrentCard() {
       if (!activeCardIndex) return;
       const val = document.getElementById('buyer-input').value.trim();
       if (val) {
@@ -290,17 +340,19 @@
       } else {
         delete sales[activeCardIndex];
       }
-      saveToStorage();
+      localStorage.setItem('loteria_rifa_ventas_v3', JSON.stringify(sales));
       renderGrid();
       closeModal();
+      await syncToCloud();
     }
 
-    function clearCurrentCard() {
+    async function clearCurrentCard() {
       if (!activeCardIndex) return;
       delete sales[activeCardIndex];
-      saveToStorage();
+      localStorage.setItem('loteria_rifa_ventas_v3', JSON.stringify(sales));
       renderGrid();
       closeModal();
+      await syncToCloud();
     }
 
     function exportBackup() {
@@ -374,7 +426,6 @@
         const x = PAD_X + col * (CARD_W + GAP_X);
         const y = PAD_Y + row * (CARD_H + GAP_Y);
 
-        // Card Drop Shadow
         ctx.save();
         ctx.shadowColor = 'rgba(0,0,0,0.25)';
         ctx.shadowBlur = 18;
@@ -384,17 +435,14 @@
         ctx.fillRect(x, y, CARD_W, CARD_H);
         ctx.restore();
 
-        // Card border definition
         ctx.strokeStyle = '#c8c8c8';
         ctx.lineWidth = 2;
         ctx.strokeRect(x, y, CARD_W, CARD_H);
 
-        // Art
         if (images[idx] && images[idx].complete && images[idx].naturalWidth > 0) {
           ctx.drawImage(images[idx], x + BORDER_X, y + BORDER_Y, INNER_W, INNER_H);
         }
 
-        // Sold Overlay
         if (sales[i]) {
           const buyer = sales[i].toUpperCase();
 
@@ -454,7 +502,6 @@
         const file = new File([blob], filename, { type: 'image/jpeg' });
 
         if (action === 'share' && navigator.canShare && navigator.canShare({ files: [file] })) {
-          // Native Share Sheet (opens WhatsApp, Telegram, etc.)
           await navigator.share({
             files: [file],
             title: 'Rifa Lotería Mexicana',
@@ -462,7 +509,6 @@
           });
           showToast('✓ Compartido');
         } else {
-          // Direct file download fallback
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.download = filename;
